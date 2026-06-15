@@ -1,0 +1,13 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Generated data (reproduce with data/generate_transactions.py)
+data/out/
+*.jsonl
+
+# OS / creds — never commit these
+.DS_Store
+*-key.json
+application_default_credentials.json
