@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#5f6368"/>
+    </marker>
+    <style>
+      .lbl { font-size: 13px; fill: #202124; }
+      .sub { font-size: 11px; fill: #5f6368; }
+      .grp { font-size: 13px; font-weight: bold; fill: #1a73e8; }
+      .title { font-size: 20px; font-weight: bold; fill: #202124; }
+      .edge { stroke: #5f6368; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
+      .src { fill: #e8f0fe; stroke: #4285f4; stroke-width: 1.4; }
+      .proc { fill: #e6f4ea; stroke: #34a853; stroke-width: 1.4; }
+      .bq { fill: #f1f3f4; stroke: #1a73e8; stroke-width: 1.4; }
+      .bi { fill: #fef7e0; stroke: #f9ab00; stroke-width: 1.4; }
+      .dq { fill: #fce8e6; stroke: #ea4335; stroke-width: 1.4; stroke-dasharray: 5 4; }
+    </style>
+  </defs>
+
+  <text x="30" y="34" class="title">Payments Lakehouse on GCP — Architecture</text>
+
+  <!-- BigQuery container -->
+  <rect x="478" y="58" width="476" height="452" rx="10" fill="#ffffff" stroke="#1a73e8" stroke-width="1" stroke-dasharray="3 3"/>
+  <text x="498" y="80" class="grp">BigQuery: payments</text>
+
+  <!-- Sources -->
+  <text x="30" y="80" class="grp">Sources</text>
+  <rect x="30"  y="92"  width="170" height="62" rx="8" class="src"/>
+  <text x="115" y="118" text-anchor="middle" class="lbl">Raw JSONL files</text>
+  <text x="115" y="136" text-anchor="middle" class="sub">Cloud Storage</text>
+
+  <rect x="30"  y="250" width="170" height="62" rx="8" class="src"/>
+  <text x="115" y="276" text-anchor="middle" class="lbl">Payment events</text>
+  <text x="115" y="294" text-anchor="middle" class="sub">Pub/Sub topic</text>
+
+  <rect x="30"  y="408" width="170" height="62" rx="8" class="src"/>
+  <text x="115" y="434" text-anchor="middle" class="lbl">Landing files</text>
+  <text x="115" y="452" text-anchor="middle" class="sub">Cloud Storage</text>
+
+  <!-- Processing -->
+  <text x="250" y="80" class="grp">Processing</text>
+  <rect x="250" y="92"  width="190" height="62" rx="8" class="proc"/>
+  <text x="345" y="118" text-anchor="middle" class="lbl">Dataflow / Beam</text>
+  <text x="345" y="136" text-anchor="middle" class="sub">Batch: validate, enrich, agg</text>
+
+  <rect x="250" y="250" width="190" height="62" rx="8" class="proc"/>
+  <text x="345" y="276" text-anchor="middle" class="lbl">Dataflow / Beam</text>
+  <text x="345" y="294" text-anchor="middle" class="sub">Streaming: 30s windows</text>
+
+  <rect x="250" y="408" width="190" height="62" rx="8" class="proc"/>
+  <text x="345" y="434" text-anchor="middle" class="lbl">Cloud Function (gen2)</text>
+  <text x="345" y="452" text-anchor="middle" class="sub">Load on file arrival</text>
+
+  <!-- BigQuery tables -->
+  <rect x="498" y="96"  width="210" height="40" rx="6" class="bq"/>
+  <text x="603" y="121" text-anchor="middle" class="lbl">staging_transactions</text>
+
+  <rect x="498" y="150" width="210" height="40" rx="6" class="bq"/>
+  <text x="603" y="175" text-anchor="middle" class="lbl">rejects (dead-letter)</text>
+
+  <rect x="498" y="204" width="210" height="40" rx="6" class="bq"/>
+  <text x="603" y="229" text-anchor="middle" class="lbl">raw_transactions</text>
+
+  <rect x="498" y="300" width="210" height="40" rx="6" class="bq"/>
+  <text x="603" y="320" text-anchor="middle" class="lbl">streaming_merchant_agg</text>
+  <text x="603" y="334" text-anchor="middle" class="sub">partitioned</text>
+
+  <rect x="498" y="416" width="210" height="40" rx="6" class="bq"/>
+  <text x="603" y="441" text-anchor="middle" class="lbl">raw_landing</text>
+
+  <rect x="730" y="96"  width="214" height="48" rx="6" class="bq"/>
+  <text x="837" y="116" text-anchor="middle" class="lbl">mart_daily_merchant</text>
+  <text x="837" y="132" text-anchor="middle" class="sub">partitioned + clustered</text>
+
+  <rect x="730" y="300" width="214" height="48" rx="6" class="bq"/>
+  <text x="837" y="320" text-anchor="middle" class="lbl">BI views</text>
+  <text x="837" y="336" text-anchor="middle" class="sub">v_merchant_daily, v_kpis, v_data_quality</text>
+
+  <!-- BI -->
+  <text x="1000" y="80" class="grp">Reporting</text>
+  <rect x="1000" y="298" width="172" height="62" rx="8" class="bi"/>
+  <text x="1086" y="324" text-anchor="middle" class="lbl">Looker Studio</text>
+  <text x="1086" y="342" text-anchor="middle" class="sub">/ Tableau</text>
+
+  <!-- Data quality band -->
+  <rect x="30" y="536" width="1142" height="44" rx="8" class="dq"/>
+  <text x="601" y="563" text-anchor="middle" class="lbl">Data quality + reconciliation gate — raw = staging + rejects (7/7 checks passed)</text>
+
+  <!-- Edges: sources -> processing -->
+  <path class="edge" d="M200,123 L248,123"/>
+  <path class="edge" d="M200,281 L248,281"/>
+  <path class="edge" d="M200,439 L248,439"/>
+
+  <!-- batch -> bq tables -->
+  <path class="edge" d="M440,116 L496,116"/>
+  <path class="edge" d="M440,128 C470,150 470,168 496,170"/>
+  <path class="edge" d="M440,140 C468,210 470,222 496,224"/>
+
+  <!-- streaming -> agg -->
+  <path class="edge" d="M440,281 C468,300 470,316 496,320"/>
+  <!-- cf -> raw_landing -->
+  <path class="edge" d="M440,439 C468,438 470,436 496,436"/>
+
+  <!-- staging -> mart -->
+  <path class="edge" d="M708,116 L728,120"/>
+  <!-- mart -> views -->
+  <path class="edge" d="M837,144 L837,298"/>
+  <!-- streaming agg -> views -->
+  <path class="edge" d="M708,320 L728,322"/>
+  <!-- views -> looker -->
+  <path class="edge" d="M944,324 L998,326"/>
+</svg>

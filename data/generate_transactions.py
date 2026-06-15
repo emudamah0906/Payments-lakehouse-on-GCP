@@ -1,11 +1,11 @@
-"""
-Generate sample raw payment transactions as JSON Lines (one JSON object per line).
+"""Generate sample payment transactions as newline-delimited JSON.
 
-This simulates the kind of messy, real-world event data that lands in GCS / Pub/Sub
-before any cleaning. We deliberately inject a few bad records so our pipeline's
-validation step has something to catch.
+A small fraction of records are intentionally malformed (negative amount,
+unknown currency, missing customer_id) to exercise the validation and
+dead-letter paths in the pipeline.
 
-Run:  python3 generate_transactions.py --count 1000 --out raw_transactions.jsonl
+Usage:
+    python generate_transactions.py --count 1000 --out raw_transactions.jsonl
 """
 import argparse
 import json
@@ -30,14 +30,13 @@ def make_record(i: int, now: datetime) -> dict:
         "event_time": ts.isoformat(),
     }
 
-    # Inject ~5% bad data on purpose, to exercise validation:
     roll = random.random()
     if roll < 0.02:
-        rec["amount"] = -abs(rec["amount"])          # negative amount (invalid)
+        rec["amount"] = -abs(rec["amount"])
     elif roll < 0.035:
-        rec["currency"] = "XYZ"                        # unknown currency
+        rec["currency"] = "XYZ"
     elif roll < 0.05:
-        del rec["customer_id"]                         # missing required field
+        del rec["customer_id"]
     return rec
 
 

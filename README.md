@@ -7,13 +7,12 @@ Cloud Functions, and BigQuery.
 
 ## Architecture
 
-```
-BATCH        raw file ─► Beam (validate/enrich) ─► staging ─► mart ─► BI views
-                              └─► rejects (dead-letter)
-STREAMING    publisher ─► Pub/Sub ─► Beam (30s windows) ─► BigQuery
-EVENT-DRIVEN file lands in GCS ─► Cloud Function ─► auto-load to BigQuery
-QUALITY GATE 7 checks + reconciliation:  raw_count = staging_count + rejects_count
-```
+![Architecture](docs/architecture.svg)
+
+Three ingestion paths (batch, streaming, event-driven) feed a layered BigQuery
+warehouse (raw → staging → marts → BI views), gated by data-quality and
+reconciliation checks. Full write-up in [docs/PROJECT_REPORT.md](docs/PROJECT_REPORT.md)
+([PDF](docs/PROJECT_REPORT.pdf)).
 
 ## GCP services used
 | Service | Role |
@@ -40,7 +39,10 @@ dq/
   run_checks.py               # 7 data-quality + reconciliation checks (non-zero exit on fail)
 cloud_function/
   main.py                     # GCS finalize -> load to BigQuery
-LOOKER_STUDIO.md              # steps to build the dashboard
+docs/
+  architecture.svg            # architecture diagram
+  PROJECT_REPORT.md / .pdf    # implementation report with results
+  dashboard.md                # Looker Studio / Tableau setup
 ```
 
 ## Quickstart (local)
@@ -68,6 +70,19 @@ python data/publish_events.py --project $PROJECT --count 400 --rate 80
 # Data quality gate
 GOOGLE_CLOUD_PROJECT=$PROJECT python dq/run_checks.py
 ```
+
+## Results (1,000 input records)
+| Layer | Rows |
+|---|---|
+| raw_transactions | 1,000 |
+| staging_transactions (valid) | 935 |
+| rejects (dead-letter) | 65 |
+| mart_daily_merchant | 53 |
+| streaming_merchant_agg | 14 |
+| raw_landing (Cloud Function) | 50 |
+
+Dead-letter rate 6.5%; data-quality checks 7/7 passed, including reconciliation
+`raw (1000) = staging (935) + rejects (65)`.
 
 ## Key design decisions
 - **Dead-letter over drop:** invalid records are routed to a `rejects` sink with an

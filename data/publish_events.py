@@ -1,9 +1,10 @@
-"""
-Publish synthetic payment events to a Pub/Sub topic (to feed the streaming pipeline).
-Stamps event_time = now so events land in the current window.
+"""Publish synthetic payment events to a Pub/Sub topic.
 
-Run:
-  python publish_events.py --project PROJECT --topic payment-events --count 300 --rate 50
+Each event is stamped with the current time so it lands in the active window of
+the streaming pipeline.
+
+Usage:
+    python publish_events.py --project PROJECT --topic payment-events --count 300 --rate 50
 """
 import argparse
 import json

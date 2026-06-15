@@ -1,23 +1,19 @@
-"""
-Project 1 — Milestone 2:  STREAMING Apache Beam pipeline
-Pub/Sub  ->  Beam (validate + windowed aggregation)  ->  BigQuery
+"""Streaming ingestion pipeline: Pub/Sub to BigQuery.
 
-This is the "near-real-time pipeline" from the resume. Key streaming concepts
-the interview will probe (all implemented below):
-  * Unbounded source: ReadFromPubSub (never ends)
-  * Windowing: FixedWindows(30s) groups the infinite stream into finite chunks
-  * Aggregation per window with a custom CombineFn (count + sum together)
-  * Attaching the window's start time to each output row (WindowParam)
-  * Streaming writes to BigQuery (insertAll / streaming inserts)
+Consumes payment events from a Pub/Sub subscription, validates them, aggregates
+transaction count and total amount per merchant over fixed 30-second windows,
+and appends the results to BigQuery.
 
-By default Pub/Sub stamps each element with its publish time, so FixedWindows
-group by *processing-ish* time -> perfect for a live demo. (In prod you'd often
-use event time via a timestamp attribute + watermarks to handle late data.)
+Pub/Sub stamps each message with its publish time, so the fixed windows group
+events by arrival time. For event-time semantics, supply a timestamp attribute
+on the messages and Beam will use it for windowing and watermarks.
 
-Run (local DirectRunner, against REAL Pub/Sub + REAL BigQuery):
-  python streaming_transactions.py \
-    --subscription projects/PROJECT/subscriptions/payment-events-sub \
-    --output_table  PROJECT:payments.streaming_merchant_agg
+Usage:
+    python streaming_transactions.py \
+        --project PROJECT \
+        --subscription projects/PROJECT/subscriptions/payment-events-sub \
+        --output_table PROJECT:payments.streaming_merchant_agg \
+        --temp_location gs://PROJECT-payments-lake/tmp
 """
 import argparse
 import json
@@ -31,7 +27,7 @@ VALID_CURRENCIES = {"CAD", "USD", "EUR"}
 
 
 def parse_and_keep_valid(msg_bytes):
-    """Decode + validate one Pub/Sub message; drop invalid (could be dead-lettered)."""
+    """Decode and validate a Pub/Sub message, yielding only valid records."""
     try:
         rec = json.loads(msg_bytes.decode("utf-8"))
     except Exception:
@@ -46,7 +42,8 @@ def parse_and_keep_valid(msg_bytes):
 
 
 class CountSum(beam.CombineFn):
-    """Aggregate (transaction_count, total_amount) in one pass — efficient."""
+    """Accumulate transaction count and total amount in a single pass."""
+
     def create_accumulator(self):
         return (0, 0.0)
 
@@ -65,7 +62,8 @@ class CountSum(beam.CombineFn):
 
 
 class ToBqRow(beam.DoFn):
-    """Attach the window start to each aggregated row -> a BigQuery dict."""
+    """Build a BigQuery row, attaching the window start timestamp."""
+
     def process(self, element, window=beam.DoFn.WindowParam):
         merchant, (count, total) = element
         yield {
@@ -83,7 +81,7 @@ def run():
     args, beam_args = ap.parse_known_args()
 
     options = PipelineOptions(beam_args, save_main_session=True)
-    options.view_as(StandardOptions).streaming = True  # <-- unbounded pipeline
+    options.view_as(StandardOptions).streaming = True
 
     schema = "window_start:TIMESTAMP,merchant:STRING,txn_count:INTEGER,total_amount:FLOAT"
 

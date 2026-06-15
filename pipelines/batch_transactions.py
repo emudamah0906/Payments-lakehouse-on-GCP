@@ -1,23 +1,22 @@
-"""
-Project 1 — Milestone 1:  Apache Beam BATCH pipeline (runs locally on DirectRunner)
+"""Batch ingestion pipeline for raw payment transactions.
 
-What this teaches (and what you'll be asked in the interview):
-  * Pipeline / PCollection / PTransform  -> the core Beam model
-  * Map vs FlatMap vs ParDo               -> element-wise transforms
-  * Branching a PCollection + tagged outputs (valid vs rejected records)
-  * CombinePerKey / GroupByKey            -> aggregations (the "GROUP BY" of Beam)
-  * Why the SAME code runs locally (DirectRunner) and on GCP (DataflowRunner)
+Reads newline-delimited JSON, validates each record against business rules, and
+writes three outputs:
 
-Pipeline does what a real "raw -> staging -> mart" layer does:
-  read raw JSONL  ->  parse  ->  VALIDATE (split good/bad)
-                                   |-> clean/enrich good records  -> write staging
-                                   |-> aggregate by merchant      -> write mart
-                                   `-> write rejects to a dead-letter file
+  * staging                  - cleaned and enriched valid records
+  * mart_merchant_totals     - total amount aggregated per merchant
+  * rejects                  - invalid records with an error reason (dead-letter)
 
-Run:
-  python3 batch_transactions.py \
-      --input ../data/raw_transactions.jsonl \
-      --output_dir ../data/out
+Invalid records are routed to the dead-letter output instead of being dropped,
+so no data is lost and a single malformed record never fails the job.
+
+The pipeline runs unchanged on the local DirectRunner or on Cloud Dataflow
+(add --runner=DataflowRunner --project --region --temp_location).
+
+Usage:
+    python batch_transactions.py \
+        --input ../data/raw_transactions.jsonl \
+        --output_dir ../data/out
 """
 import argparse
 import json
@@ -29,21 +28,22 @@ from apache_beam.options.pipeline_options import PipelineOptions
 VALID_CURRENCIES = {"CAD", "USD", "EUR"}
 
 
-# ---- A ParDo (DoFn) that parses + validates each line --------------------------
-# We emit good records to the main output and bad ones to a tagged "rejects"
-# output. This is the standard "dead-letter queue" pattern interviewers love.
 class ParseAndValidate(beam.DoFn):
+    """Parse a JSON line and validate it.
+
+    Valid records go to the main output; invalid records are emitted to the
+    'rejects' tagged output with the list of failed rules.
+    """
+
     REJECTS = "rejects"
 
     def process(self, line):
-        # 1) Parse JSON safely
         try:
             rec = json.loads(line)
         except json.JSONDecodeError:
             yield beam.pvalue.TaggedOutput(self.REJECTS, {"raw": line, "error": "bad_json"})
             return
 
-        # 2) Validate business rules
         errors = []
         if not rec.get("customer_id"):
             errors.append("missing_customer_id")
@@ -56,11 +56,11 @@ class ParseAndValidate(beam.DoFn):
             rec["errors"] = errors
             yield beam.pvalue.TaggedOutput(self.REJECTS, rec)
         else:
-            yield rec  # main (valid) output
+            yield rec
 
 
 def enrich(rec: dict) -> dict:
-    """Light transformation: add a derived column + normalize. Returns a new dict."""
+    """Normalize the merchant field and derive an amount band."""
     rec["merchant"] = rec["merchant"].strip().lower()
     rec["amount_band"] = (
         "small" if rec["amount"] < 50 else "medium" if rec["amount"] < 500 else "large"
@@ -69,7 +69,6 @@ def enrich(rec: dict) -> dict:
 
 
 def to_merchant_kv(rec: dict):
-    """Map each record to (merchant, amount) so we can aggregate per merchant."""
     return (rec["merchant"], rec["amount"])
 
 
@@ -84,15 +83,11 @@ def run():
     ap.add_argument("--output_dir", required=True)
     args, beam_args = ap.parse_known_args()
 
-    # PipelineOptions carries runner config. With no --runner flag it uses
-    # DirectRunner (local). On GCP you'd pass --runner=DataflowRunner + project/region.
     options = PipelineOptions(beam_args)
 
     with beam.Pipeline(options=options) as p:
-        # Read raw lines -> a PCollection[str]
         lines = p | "ReadRaw" >> beam.io.ReadFromText(args.input)
 
-        # Parse + validate, splitting into main (valid) and 'rejects' outputs
         parsed = lines | "ParseValidate" >> beam.ParDo(
             ParseAndValidate()
         ).with_outputs(ParseAndValidate.REJECTS, main="valid")
@@ -100,7 +95,7 @@ def run():
         valid = parsed.valid
         rejects = parsed[ParseAndValidate.REJECTS]
 
-        # --- Staging branch: clean/enrich valid records, write out ---
+        # Staging: cleaned and enriched valid records.
         staging = valid | "Enrich" >> beam.Map(enrich)
         (
             staging
@@ -110,7 +105,7 @@ def run():
             )
         )
 
-        # --- Mart branch: total amount per merchant (CombinePerKey == GROUP BY SUM) ---
+        # Mart: total amount per merchant.
         (
             staging
             | "ToMerchantKV" >> beam.Map(to_merchant_kv)
@@ -121,7 +116,7 @@ def run():
             )
         )
 
-        # --- Dead-letter branch: keep the bad records for inspection ---
+        # Dead-letter: invalid records retained for inspection and reprocessing.
         (
             rejects
             | "RejectsToJson" >> beam.Map(json.dumps)
